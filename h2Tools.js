@@ -12,7 +12,7 @@
 	const enumLookup = JSON.parse(fs.readFileSync('lookupFiles/enumLookup.json', 'utf8'));
 
 	// Version number constant
-	const VERSION_STRING = "v1.1";
+	const VERSION_STRING = "v1.2";
 
 	// Field type constants
 	const FIELD_TYPE_INT = 0;
@@ -74,7 +74,7 @@
 	}
 
 	// Function to write records to an H2 file
-	async function writeRecords(recordsObject = null, outputName = null)
+	async function writeRecords(recordsObject = null, outputName = null, tableName = "PLEX")
 	{
 		if(!recordsObject)
 		{
@@ -120,7 +120,8 @@
 		const newRecordCount = utilFunctions.writeModifiedLebEncodedNumber(Object.values(recordsObject).length);
 
 		const unkBytes = Buffer.from([0x00, 0x02]);
-		const tableBytes = Buffer.from(utilFunctions.compress6BitString("PLEX"));
+
+		const tableBytes = Buffer.from(utilFunctions.compress6BitString(tableName));
 
 		// Write the beginning of the file
 		let headerBuffer = Buffer.alloc(6 + newRecordCount.length);
@@ -294,7 +295,11 @@
 		// Set up data buffer
 		console.log("\nEnter the path to the league visuals JSON file: ");
 		const visualsPath = prompt().trim().replace(/['"]/g, '');
-		const visualsJsonData = JSON.parse(fs.readFileSync(visualsPath, 'utf8'))["characterVisualsPlayerMap"];
+		const visualsJson = JSON.parse(fs.readFileSync(visualsPath, 'utf8'));
+
+		const visualsKey = Object.keys(visualsJson)[0];
+		
+		const visualsJsonData = visualsJson[visualsKey]; 
 
 		let recordsObject = {};
 
@@ -321,8 +326,10 @@
 		console.log("\nEnter the name of the output file (without extension):");
 		const outputName = prompt().trim().replace(/['"]/g, '');
 
+		const tableName = visualsKey === "characterVisualsCoachMap" ? "COEX" : "PLEX";
+
 		// Write the records to the output file
-		await writeRecords(recordsObject, outputName);
+		await writeRecords(recordsObject, outputName, tableName);
 		
 	}
 
@@ -561,8 +568,10 @@
 		const unkBytes = parser.readBytes(2);
 		const recordCount = utilFunctions.readModifiedLebEncodedNumber(parser);
 
+		const mapType = tableName === "COEX" ? "characterVisualsCoachMap" : "characterVisualsPlayerMap";
+
 		let recordsObject = {
-			characterVisualsPlayerMap: {}
+			[mapType]: {}
 		};
 
 		// Read each record
@@ -585,7 +594,7 @@
 			recordParser.readBytes(4);
 			let recordObject = readChviRecord(recordParser);
 
-			recordsObject.characterVisualsPlayerMap[recordKey] = recordObject;
+			recordsObject[mapType][recordKey] = recordObject;
 		}
 
 		// Output file info
@@ -596,7 +605,7 @@
 		fs.writeFileSync(outputName + ".json", JSON.stringify(recordsObject, null, 4));
 	}
 
-	const options = ["Read raw records from H2 file", "Write raw records to H2 file", "Convert leaguevisuals JSON to H2 file", "Convert H2 file to leaguevisuals JSON", "Exit program"]; 
+	const options = ["Read raw records from H2 file", "Write raw records to H2 file", "Convert visuals JSON to H2 file", "Convert H2 file to visuals JSON", "Exit program"]; 
 
 	// Main program logic
 	console.log(`Welcome to H2 Visuals Tools ${VERSION_STRING}! This program will help you read, write, and convert H2 visuals files.\n`);
