@@ -176,7 +176,7 @@
 		unkBytes.copy(headerBuffer, 4);
 		newRecordCount.copy(headerBuffer, 6);
 
-		if(gameYear >= 26)
+		if(currentGameYear >= 26)
 		{
 			const extendedHeaderBuf = Buffer.from([0x8A, 0xCB, 0xE2, 0x04, 0x03, 0x01]);
 			headerBuffer = Buffer.concat([extendedHeaderBuf, headerBuffer]);
