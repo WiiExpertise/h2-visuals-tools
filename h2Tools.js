@@ -6,13 +6,23 @@
 	const { FileParser } = require('./utils/fileParser');
 
 	// Required lookup files
-	const slotNumLookup = JSON.parse(fs.readFileSync('lookupFiles/slotNumLookup.json', 'utf8'));
-	const slotsLookup = JSON.parse(fs.readFileSync('lookupFiles/slotsLookup.json', 'utf8'));
+	let slotNumLookup = JSON.parse(fs.readFileSync('lookupFiles/25_slotNumLookup.json', 'utf8'));
+	let slotsLookup = JSON.parse(fs.readFileSync('lookupFiles/25_slotsLookup.json', 'utf8'));
 	const fieldLookup = JSON.parse(fs.readFileSync('lookupFiles/fieldLookup.json', 'utf8'));
 	const enumLookup = JSON.parse(fs.readFileSync('lookupFiles/enumLookup.json', 'utf8'));
+	const m25to26Lookup = utilFunctions.normalizeKeys(JSON.parse(fs.readFileSync('lookupFiles/25to26Lookup.json', 'utf8')));
+	const bodyTypeLookup = JSON.parse(fs.readFileSync('lookupFiles/bodyTypeLookup.json', 'utf8'));
+	const m25SlotNumLookup = utilFunctions.normalizeKeys(JSON.parse(fs.readFileSync('lookupFiles/25_slotNumLookup.json', 'utf8')));
+
+	// Reverse 25 to 26 lookup to get 26 to 25 lookup
+	const m26to25Lookup = {};
+	for (const [key, value] of Object.entries(m25to26Lookup)) {
+		m26to25Lookup[value.toLowerCase()] = key;
+	}
 
 	// Version number constant
-	const VERSION_STRING = "v1.2";
+	const VERSION_STRING = "v2.0";
+	let currentGameYear = 25;
 
 	// Field type constants
 	const FIELD_TYPE_INT = 0;
@@ -20,9 +30,33 @@
 	const FIELD_TYPE_ARRAY = 4;
 	const FIELD_TYPE_FLOAT = 10;
 
+	// Function to get the current game year
+	function getGameYear()
+	{
+		let gameYear;
+		do
+		{
+			console.log("Is this for Madden 25 or 26?");
+			gameYear = parseInt(prompt().trim());
+
+			if(gameYear !== 25 && gameYear !== 26)
+			{
+				console.log("Invalid input. Please enter 25 or 26.");
+			}
+		}
+		while(gameYear !== 25 && gameYear !== 26);
+
+		currentGameYear = gameYear;
+
+		slotNumLookup = JSON.parse(fs.readFileSync(`lookupFiles/${gameYear}_slotNumLookup.json`, 'utf8'));
+		slotsLookup = JSON.parse(fs.readFileSync(`lookupFiles/${gameYear}_slotsLookup.json`, 'utf8'));
+	}
+
 	// Function to read records from an H2 file
 	async function readRecords()
 	{
+		getGameYear();
+		
 		// Set up data buffer
 		console.log("\nEnter the path to the H2 archive file: ");
 		const visualsPath = prompt().trim().replace(/['"]/g, '');
@@ -31,6 +65,11 @@
 		let parser = new FileParser(fileData);
 
 		// Read the start of the file
+		if(currentGameYear >= 26)
+		{
+			parser.readBytes(6);
+		}
+
 		const tableBytes = parser.readBytes(3);
 		const tableName = utilFunctions.getUncompressedTextFromSixBitCompression(tableBytes);
 		const type = parser.readByte().readUInt8(0);
@@ -78,6 +117,13 @@
 	{
 		if(!recordsObject)
 		{
+			getGameYear();
+
+			if(currentGameYear >= 26)
+			{
+				tableName = "BLBM";
+			}
+			
 			// Enter the path to the records folder
 			console.log("\nEnter the path to the folder containing the records:");
 			let recordsPath = prompt().trim().replace(/['"]/g, '');
@@ -130,6 +176,12 @@
 		unkBytes.copy(headerBuffer, 4);
 		newRecordCount.copy(headerBuffer, 6);
 
+		if(gameYear >= 26)
+		{
+			const extendedHeaderBuf = Buffer.from([0x8A, 0xCB, 0xE2, 0x04, 0x03, 0x01]);
+			headerBuffer = Buffer.concat([extendedHeaderBuf, headerBuffer]);
+		}
+
 		let recordBufferArray = [];
 
 		let keysList = Object.keys(recordsObject).sort((a, b) => parseInt(a) - parseInt(b));
@@ -152,6 +204,12 @@
 		for(const recordBuffer of recordBufferArray)
 		{
 			headerBuffer = Buffer.concat([headerBuffer, recordBuffer]);
+		}
+
+		if(currentGameYear >= 26)
+		{
+			const trailingBuf = Buffer.from([0xD3, 0x29, 0x66, 0x00, 0x90, 0xB1, 0x8A, 0x94, 0x0B, 0x00]);
+			headerBuffer = Buffer.concat([headerBuffer, trailingBuf]);
 		}
 
 		fs.writeFileSync(outputName + ".H2", headerBuffer);
@@ -292,6 +350,8 @@
 	// Function to convert league visuals JSON to H2 file
 	async function convertLeagueVisualsToH2()
 	{
+		getGameYear();
+		
 		// Set up data buffer
 		console.log("\nEnter the path to the league visuals JSON file: ");
 		const visualsPath = prompt().trim().replace(/['"]/g, '');
@@ -310,6 +370,12 @@
 		{
 			// Common entry header
 			let recordBytes = [0x8E, 0x8D, 0xA9, 0x03];
+			let extraHeader = [0x8E, 0x88, 0x6E, 0x03, 0x8E, 0x88, 0x6E, 0x03, 0x00, 0x00];
+
+			if(currentGameYear >= 26)
+			{
+				recordBytes = extraHeader.concat(recordBytes);
+			}
 
 			// Write the record data
 			recordBytes.push(...writeChviRecord(visualsJsonData[key]));
@@ -326,7 +392,7 @@
 		console.log("\nEnter the name of the output file (without extension):");
 		const outputName = prompt().trim().replace(/['"]/g, '');
 
-		const tableName = visualsKey === "characterVisualsCoachMap" ? "COEX" : "PLEX";
+		const tableName = currentGameYear >= 26 ? "BLBM" : visualsKey === "characterVisualsCoachMap" ? "COEX" : "PLEX";
 
 		// Write the records to the output file
 		await writeRecords(recordsObject, outputName, tableName);
@@ -556,19 +622,35 @@
 
 	async function convertH2ToLeagueVisuals()
 	{
+		getGameYear();
+		
 		// Set up data buffer
 		console.log("\nEnter the path to the H2 archive file: ");
 		const visualsPath = prompt().trim().replace(/['"]/g, '');
 		let h2Data = fs.readFileSync(visualsPath);
 		let parser = new FileParser(h2Data);
 		// Read the start of the file
+		if(currentGameYear >= 26)
+		{
+			parser.readBytes(6);
+		}
+
+
 		const tableBytes = parser.readBytes(3);
 		const tableName = utilFunctions.getUncompressedTextFromSixBitCompression(tableBytes);
 		const type = parser.readByte().readUInt8(0);
 		const unkBytes = parser.readBytes(2);
 		const recordCount = utilFunctions.readModifiedLebEncodedNumber(parser);
 
-		const mapType = tableName === "COEX" ? "characterVisualsCoachMap" : "characterVisualsPlayerMap";
+		let visualType;
+
+		if(currentGameYear === 26)
+		{
+			console.log("Is this a player or coach visual? (Enter 'p' for player, 'c' for coach)");
+			visualType = prompt().trim().toLowerCase();
+		}
+
+		const mapType = tableName === "COEX" || (visualType && visualType === "c") ? "characterVisualsCoachMap" : "characterVisualsPlayerMap";
 
 		let recordsObject = {
 			[mapType]: {}
@@ -591,7 +673,7 @@
 			// Parse the record data
 			let recordParser = new FileParser(decompressedData);
 			// Skip record header
-			recordParser.readBytes(4);
+			recordParser.readBytes(currentGameYear >= 26 ? 14 : 4);
 			let recordObject = readChviRecord(recordParser);
 
 			recordsObject[mapType][recordKey] = recordObject;
@@ -605,7 +687,166 @@
 		fs.writeFileSync(outputName + ".json", JSON.stringify(recordsObject, null, 4));
 	}
 
-	const options = ["Read raw records from H2 file", "Write raw records to H2 file", "Convert visuals JSON to H2 file", "Convert H2 file to visuals JSON", "Exit program"]; 
+	async function convert25LeagueVisualsTo26()
+	{
+		// Set up data buffer
+		console.log("\nEnter the path to the M25 league visuals JSON file: ");
+		const visualsPath = prompt().trim().replace(/['"]/g, '');
+		const visualsJson = JSON.parse(fs.readFileSync(visualsPath, 'utf8'));
+
+		const visualsMap = visualsJson.characterVisualsPlayerMap || visualsJson.characterVisualsCoachMap;
+
+		const keys = Object.keys(visualsMap);
+
+		for(const key of keys)
+		{
+			let recordObject = visualsMap[key];
+			let loadouts = recordObject.loadouts || [];
+
+			// If there is no loadout with category base and the bodyType field exists, add a new base loadout
+			if(!loadouts.some(loadout => loadout.loadoutCategory && loadout.loadoutCategory.toLowerCase() === "base") && recordObject.bodyType)
+			{
+				let newLoadout = {
+					loadoutCategory: "Base",
+					loadoutElements: []
+				};
+
+				loadouts.push(newLoadout);
+			}
+
+			for(let i = 0; i < loadouts.length; i++)
+			{
+				const loadout = loadouts[i];
+
+				if(loadout.loadoutCategory && loadout.loadoutCategory.toLowerCase() === "base" && recordObject.bodyType)
+				{
+					if(bodyTypeLookup.hasOwnProperty(recordObject.bodyType))
+					{
+						let newLoadoutElement = {
+							slotType: "CharacterBodyType",
+							itemAssetName: bodyTypeLookup[recordObject.bodyType]
+						}
+
+						loadout.loadoutElements = loadout.loadoutElements || [];
+						loadout.loadoutElements.push(newLoadoutElement);
+					}
+				}
+
+				const loadoutElements = loadout.loadoutElements || [];
+
+				for(let j = 0; j < loadoutElements.length; j++)
+				{
+					const loadoutElement = loadoutElements[j];
+
+					if(loadoutElement.slotType && m25to26Lookup.hasOwnProperty(loadoutElement.slotType.toLowerCase()))
+					{						
+						loadoutElement.slotType = m25to26Lookup[loadoutElement.slotType.toLowerCase()];
+
+						if(loadoutElement.slotType.toLowerCase() === "leftthighwear")
+						{
+							// Make new copy of this loadout element for right thigh wear
+							let rightThighWearElement = JSON.parse(JSON.stringify(loadoutElement));
+							rightThighWearElement.slotType = "RightThighWear";
+							// Add the new element to the loadouts array
+							loadoutElements.push(rightThighWearElement);
+						}
+					}
+				}
+			}
+		}
+
+		// Output file info
+		console.log("\nEnter the name of the output file:");
+		const outputName = prompt().trim().replace(/['"]/g, '');
+
+		// Write the JSON data to the output file
+		fs.writeFileSync(outputName, JSON.stringify(visualsJson, null, 4));
+
+		console.log(`\nConverted M25 visuals JSON to M26 visuals JSON and saved to ${outputName}.`);
+	}
+
+	async function convert26LeagueVisualsTo25()
+	{
+		// Set up data buffer
+		console.log("\nEnter the path to the M26 league visuals JSON file: ");
+		const visualsPath = prompt().trim().replace(/['"]/g, '');
+		const visualsJson = JSON.parse(fs.readFileSync(visualsPath, 'utf8'));
+
+		const visualsMap = visualsJson.characterVisualsPlayerMap || visualsJson.characterVisualsCoachMap;
+
+		const keys = Object.keys(visualsMap);
+
+		for(const key of keys)
+		{
+			let recordObject = visualsMap[key];
+			let loadouts = recordObject.loadouts || [];
+
+			for(let i = 0; i < loadouts.length; i++)
+			{
+				const loadout = loadouts[i];
+
+				const loadoutElements = loadout.loadoutElements || [];
+
+				for(let j = 0; j < loadoutElements.length; j++)
+				{
+					const loadoutElement = loadoutElements[j];
+
+					if(!loadoutElement.slotType && loadoutElement.itemAssetName && loadoutElement.itemAssetName.toLowerCase().includes("gearfacemask"))
+					{
+						loadoutElement.slotType = "Facemask";
+						continue;
+					}
+
+					if(loadoutElement.slotType && loadoutElement.slotType.toLowerCase() === "characterbodytype")
+					{
+						// Find the key in the bodyTypeLookup which has a value matching the itemAssetName
+						let bodyTypeKey = Object.keys(bodyTypeLookup).find(key => bodyTypeLookup[key].toLowerCase() === loadoutElement.itemAssetName.toLowerCase());
+
+						if(bodyTypeKey)
+						{
+							recordObject.bodyType = bodyTypeKey;
+						}
+
+						// Remove the loadout element
+						loadoutElements.splice(j, 1);
+						j--;
+						continue;
+					}
+
+					if(loadoutElement.slotType.toLowerCase() === "rightthighwear")
+					{
+						// Remove the right thigh wear element
+						loadoutElements.splice(j, 1);
+						j--;
+						continue;
+					}
+
+					if(!m26to25Lookup.hasOwnProperty(loadoutElement.slotType.toLowerCase()) && !m25SlotNumLookup.hasOwnProperty(loadoutElement.slotType.toLowerCase()))
+					{
+						loadoutElements.splice(j, 1);
+						j--;
+						continue;
+					}
+
+					if(loadoutElement.slotType && m26to25Lookup.hasOwnProperty(loadoutElement.slotType.toLowerCase()))
+					{
+						loadoutElement.slotType = m26to25Lookup[loadoutElement.slotType.toLowerCase()];
+					}
+				}
+			}
+		}
+
+		// Output file info
+		console.log("\nEnter the name of the output file:");
+		const outputName = prompt().trim().replace(/['"]/g, '');
+
+		// Write the JSON data to the output file
+		fs.writeFileSync(outputName, JSON.stringify(visualsJson, null, 4));
+
+		console.log(`\nConverted M25 visuals JSON to M26 visuals JSON and saved to ${outputName}.`);
+	}
+
+	const options = ["Read raw records from H2 file", "Write raw records to H2 file", "Convert visuals JSON to H2 file", "Convert H2 file to visuals JSON", "Convert M25 visuals JSON to M26 visuals JSON", "Convert M26 visuals JSON to M25 visuals JSON", "Exit program"];
 
 	// Main program logic
 	console.log(`Welcome to H2 Visuals Tools ${VERSION_STRING}! This program will help you read, write, and convert H2 visuals files.\n`);
@@ -644,6 +885,14 @@
 			await convertH2ToLeagueVisuals();
 		}
 		else if(option === 5)
+		{
+			await convert25LeagueVisualsTo26();
+		}
+		else if(option === 6)
+		{
+			await convert26LeagueVisualsTo25();
+		}
+		else if(option === 7)
 		{
 			break;
 		}

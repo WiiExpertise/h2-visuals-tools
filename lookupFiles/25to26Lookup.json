@@ -1,0 +1,23 @@
+{
+    "Facemask": "FaceMask",
+    "ThighGear": "LeftThighWear",
+    "Undershirt": "InnerShirt",
+    "JerseyStyle": "OuterShirt",
+    "LeftHandgear": "LeftHandWear",
+    "RightHandgear": "RightHandWear",
+    "LeftWristGear": "LeftWristWear",
+    "RightWristGear": "RightWristWear",
+    "LeftElbowGear": "LeftElbowWear",
+    "RightElbowGear": "RightElbowWear",
+    "LeftCalf": "LeftCalfWear",
+    "RightCalf": "RightCalfWear",
+    "LeftArm": "LeftArmWear",
+    "RightArm": "RightArmWear",
+    "Handwarmer": "WaistWear",
+    "HandwarmerMod": "WaistWearOverride",
+    "GearHelmet": "HeadWear",
+    "Mouthpiece": "MouthWear",
+    "GearSocks": "InnerSocks",
+    "KneeItem": "KneeWear",
+    "Backplate": "BackPlate"
+}

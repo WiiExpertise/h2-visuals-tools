@@ -1,0 +1,14 @@
+{
+  "0": "Standard_BodyType",
+  "1": "Thin_BodyType",
+  "2": "Muscular_BodyType",
+  "3": "Heavy_BodyType",
+  "4": "Lean_BodyType",
+  "5": "CharacterBodyType_ReservedMain_1",
+  "6": "CharacterBodyType_ReservedMain_2",
+  "7": "CharacterBodyType_ReservedMain_3",
+  "8": "StandardAlternate_BodyType",
+  "9": "ThinAlternate_BodyType",
+  "10": "CharacterBodyType_Max",
+  "15": "CharacterBodyType_Invalid"
+}
