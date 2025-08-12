@@ -90,62 +90,74 @@ function writeModifiedLebEncodedNumber(value)
     const isNegative = value < 0;
     value = Math.abs(value);
 
-    if (value <= 63) 
-    {
-        const buffer = Buffer.from([value]);
-        const bv = new BitView(buffer, buffer.byteOffset);
-    
-        if (isNegative) 
-        {
-            bv.setBits(6, 1, 1);
+    // Calculate the factors as used by the read function
+    // Factor formula: 1 << (i * 6), then << 1 if i > 1
+    const calculateFactor = (i) => {
+        let factor = 1 << (i * 6);
+        if (i > 1) {
+        factor = factor << 1;
         }
-    
-        return buffer;
+        return factor;
+    };
+
+    // Find how many bytes we need
+    let numBytes = 1;
+    let testValue = value;
+    while (testValue >= calculateFactor(numBytes - 1) * (numBytes === 1 ? 64 : 128)) {
+        numBytes++;
     }
-    else if (value > 63 && value < 8192) 
-    {
-        const buffer = Buffer.from([0x0, 0x0]);
-        const bv = new BitView(buffer, buffer.byteOffset);
+
+    // Decompose the value using the factors
+    let remaining = value;
+    let components = new Array(numBytes);
+    
+    for (let i = numBytes - 1; i >= 0; i--) {
+        const factor = calculateFactor(i);
+        const maxValue = (i === 0) ? 63 : 127; // First byte has 6 bits, others have 7
         
-        const lowerBitValue = value % 64;
-        bv.setBits(0, lowerBitValue, 6);
-    
-        if (isNegative) 
-        {
-            bv.setBits(6, 1, 1);
+        components[i] = Math.floor(remaining / factor);
+        if (components[i] > maxValue) {
+        components[i] = maxValue;
         }
-    
-        bv.setBits(7, 1, 1);
-        
-        const higherBitValue = Math.floor(value / 64);
-        bv.setBits(8, higherBitValue, 8);
-    
-        return buffer;
-        }
-        else 
-        {
-        const buffer = Buffer.from([0x0, 0x0, 0x0]);
-        const bv = new BitView(buffer, buffer.byteOffset);
-    
-        const lowerBitValue = value % 64;
-        bv.setBits(0, lowerBitValue, 6);
-    
-        if (isNegative)
-        {
-            bv.setBits(6, 1, 1);
-        }
-    
-        bv.setBits(7, 1, 1);
-        
-        const midBitValue = Math.floor((value - 8192) / 64);
-        bv.setBits(8, midBitValue, 7);
-        bv.setBits(15, 1, 1);
-    
-        const highBitValue = Math.floor(value / 8192);
-        bv.setBits(16, highBitValue, 8);
-    
-        return buffer;
+        remaining -= components[i] * factor;
     }
+
+    // Handle any remaining value by adjusting the last components
+    if (remaining > 0) {
+        for (let i = 0; i < numBytes && remaining > 0; i++) {
+        const factor = calculateFactor(i);
+        const maxValue = (i === 0) ? 63 : 127;
+        const canAdd = Math.min(maxValue - components[i], Math.floor(remaining / factor));
+        components[i] += canAdd;
+        remaining -= canAdd * factor;
+        }
+    }
+
+    // Build the bytes
+    let bytes = [];
+    for (let i = 0; i < numBytes; i++) {
+        let byte = components[i];
+        
+        if (i === 0) {
+        // First byte: add sign bit if negative
+        if (isNegative) {
+            byte |= 0x40;
+        }
+        // Add continuation bit if there are more bytes
+        if (numBytes > 1) {
+            byte |= 0x80;
+        }
+        } else {
+        // Subsequent bytes: add continuation bit if there are more bytes after this one
+        if (i < numBytes - 1) {
+            byte |= 0x80;
+        }
+        }
+        
+        bytes.push(byte);
+    }
+    
+    return Buffer.from(bytes);
 }
 
 // Function to get uncompressed text from a 6-bit compressed buffer
