@@ -21,7 +21,7 @@
 	}
 
 	// Version number constant
-	const VERSION_STRING = "v2.1";
+	const VERSION_STRING = "v2.2";
 	let currentGameYear = 25;
 
 	// Field type constants
